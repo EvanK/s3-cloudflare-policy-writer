@@ -1,0 +1,27 @@
+{
+  "name": "s3-cloudflare-policy-writer",
+  "version": "0.0.1",
+  "description": "CloudFormation templates to manage an IAM policy for S3 access by way of a Cloudflare IP range whitelist",
+  "private": true,
+  "main": "index.mjs",
+  "scripts": {
+    "build": "node index.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EvanK/s3-cloudflare-policy-writer.git"
+  },
+  "author": "Evan S Kaufman <evan@evanskaufman.com> (https://evanskaufman.com/)",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/EvanK/s3-cloudflare-policy-writer/issues"
+  },
+  "homepage": "https://github.com/EvanK/s3-cloudflare-policy-writer#readme",
+  "dependencies": {
+    "terser": "^5.28.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

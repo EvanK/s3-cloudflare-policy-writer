@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  FunctionNameParameter:
+    Type: String
+    Default: writeS3PolicyForCloudflare
+    Description: Enter name of Lambda function to create. Default is `writeS3PolicyForCloudflare`
+  LogVerboseLambdaParameter:
+    Type: String
+    AllowedValues:
+    - true
+    - false
+    Default: false
+    Description: Enter whether Lambda function should produce verbose output for debugging purposes. Default is `false`
+  LogRetentionParameter:
+    Type: Number
+    AllowedValues: [ 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365 ]
+    Default: 3
+    Description: Enter number of days to retain log streams from Lambda invocations. Default is `3`
+  BucketNamesParameter:
+    Type: CommaDelimitedList
+    AllowedPattern: ^[a-z0-9.-]+$
+    ConstraintDescription: must contain only lowercase letters, numbers, dashes, and dots (for each required bucket name)
+    Description: Enter names of buckets whose policies are to be managed.
+  InvokeFunctionOnScheduleParameter:
+    Type: String
+    AllowedValues:
+    - true
+    - false
+    Default: false
+    Description: Enter whether Lambda function should be invoked on a regularly occurring schedule. Default is `false`
+  InvocationScheduleParameter:
+    Type: String
+    AllowedPattern: "^(?:rate[(](?:(?:1[ ]+(hour|minute|day))|(?:[0-9]+[ ]+(hours|minutes|days)))[)])|(?:cron[(](?:(?:(?:[0-5]?[0-9])|[*])(?:(?:[-](?:(?:[0-5]?[0-9])|[*]))|(?:[/][0-9]+))?(?:[,](?:(?:[0-5]?[0-9])|[*])(?:(?:[-](?:(?:[0-5]?[0-9])|[*]))|(?:[/][0-9]+))?)*)[ ]+(?:(?:(?:[0-2]?[0-9])|[*])(?:(?:[-](?:(?:[0-2]?[0-9])|[*]))|(?:[/][0-9]+))?(?:[,](?:(?:[0-2]?[0-9])|[*])(?:(?:[-](?:(?:[0-2]?[0-9])|[*]))|(?:[/][0-9]+))?)*)[ ]+(?:(?:[?][ ]+(?:(?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*])(?:(?:[-](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*]))|(?:[/][0-9]+))?(?:[,](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*])(?:(?:[-](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*]))|(?:[/][0-9]+))?)*)[ ]+(?:(?:(?:[1-7]|(?:SUN|MON|TUE|WED|THU|FRI|SAT))[#][0-5])|(?:(?:(?:(?:[1-7]|(?:SUN|MON|TUE|WED|THU|FRI|SAT))L?)|[L*])(?:(?:[-](?:(?:(?:[1-7]|(?:SUN|MON|TUE|WED|THU|FRI|SAT))L?)|[L*]))|(?:[/][0-9]+))?(?:[,](?:(?:(?:[1-7]|(?:SUN|MON|TUE|WED|THU|FRI|SAT))L?)|[L*])(?:(?:[-](?:(?:(?:[1-7]|(?:SUN|MON|TUE|WED|THU|FRI|SAT))L?)|[L*]))|(?:[/][0-9]+))?)*)))|(?:(?:(?:(?:(?:[1-3]?[0-9])W?)|LW|[L*])(?:(?:[-](?:(?:(?:[1-3]?[0-9])W?)|LW|[L*]))|(?:[/][0-9]+))?(?:[,](?:(?:(?:[1-3]?[0-9])W?)|LW|[L*])(?:(?:[-](?:(?:(?:[1-3]?[0-9])W?)|LW|[L*]))|(?:[/][0-9]+))?)*)[ ]+(?:(?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*])(?:(?:[-](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*]))|(?:[/][0-9]+))?(?:[,](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*])(?:(?:[-](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*]))|(?:[/][0-9]+))?)*)[ ]+[?]))[ ]+(?:(?:(?:[12][0-9]{3})|[*])(?:(?:[-](?:(?:[12][0-9]{3})|[*]))|(?:[/][0-9]+))?(?:[,](?:(?:[12][0-9]{3})|[*])(?:(?:[-](?:(?:[12][0-9]{3})|[*]))|(?:[/][0-9]+))?)*)[)])$"
+    # ^^ see: https://github.com/EvanK/aws-eventbridge-schedule-expressions-regex
+    Default: 'cron(0 0 1 * ? *)'
+    Description: 'Schedule pattern to invoke Lambda function. Default is monthly with `cron(0 0 1 * ? *)`'
+  ProjectTagParameter:
+    Type: String
+    Default: s3-cloudflare-policy-writer
+    Description: Enter value of Project tag for every resource directly created by this template. Default is `s3-cloudflare-policy-writer`
+
+Conditions:
+  ShouldLogVerbose:
+    !Equals [true, !Ref LogVerboseLambdaParameter]
+  ShouldCreateScheduleCondition:
+    !Equals [true, !Ref InvokeFunctionOnScheduleParameter]
+
+Resources:
+  LambdaInvocationRule:
+    Type: AWS::Events::Rule
+    Condition: ShouldCreateScheduleCondition
+    Properties:
+      ScheduleExpression: !Ref InvocationScheduleParameter
+      Targets:
+      - Id: LambdaPolicyMangagerScheduler
+        Arn: !GetAtt LambdaPolicyManagerFunction.Arn
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AllowCloudwatchLogging
+                Effect: Allow
+                Action:
+                - 'logs:CreateLogGroup'
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+                Resource: '*'
+              - Sid: AllowS3BucketPolicyMgmt
+                Effect: Allow
+                Action:
+                - 's3:GetBucketLocation'
+                - 's3:GetBucketPolicy'
+                - 's3:GetBucketPolicyStatus'
+                - 's3:PutBucketPolicy'
+                - 's3:DeleteBucketPolicy'
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTagParameter
+  LambdaPolicyManagerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaLoggingGroup
+    Properties:
+      Role: !GetAtt LambdaExecutionRole.Arn
+      FunctionName: !Ref FunctionNameParameter
+      Environment:
+        Variables:
+          LOG_VERBOSE: !If [ShouldLogVerbose, '1', '']
+          TARGET_BUCKETS: !Join [',', !Ref BucketNamesParameter]
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Timeout: 10
+      Code:
+        ZipFile: |
+          __REPLACE_WITH_MINIFIED_HANDLER__
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTagParameter
+  LambdaLoggingGroup:
+    Type: AWS::Logs::LogGroup
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${FunctionNameParameter}'
+      RetentionInDays: !Ref LogRetentionParameter
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTagParameter

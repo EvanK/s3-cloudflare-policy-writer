@@ -1,0 +1,249 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  FunctionNameParameter:
+    Type: String
+    Default: writeS3PolicyForCloudflare
+    Description: Enter name of Lambda function to create. Default is `writeS3PolicyForCloudflare`
+  LogVerboseLambdaParameter:
+    Type: String
+    AllowedValues:
+    - true
+    - false
+    Default: false
+    Description: Enter whether Lambda function should produce verbose output for debugging purposes. Default is `false`
+  LogRetentionParameter:
+    Type: Number
+    AllowedValues: [ 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365 ]
+    Default: 3
+    Description: Enter number of days to retain log streams from Lambda invocations. Default is `3`
+  BucketNamesParameter:
+    Type: CommaDelimitedList
+    AllowedPattern: ^[a-z0-9.-]+$
+    ConstraintDescription: must contain only lowercase letters, numbers, dashes, and dots (for each required bucket name)
+    Description: Enter names of buckets whose policies are to be managed.
+  InvokeFunctionOnScheduleParameter:
+    Type: String
+    AllowedValues:
+    - true
+    - false
+    Default: false
+    Description: Enter whether Lambda function should be invoked on a regularly occurring schedule. Default is `false`
+  InvocationScheduleParameter:
+    Type: String
+    AllowedPattern: "^(?:rate[(](?:(?:1[ ]+(hour|minute|day))|(?:[0-9]+[ ]+(hours|minutes|days)))[)])|(?:cron[(](?:(?:(?:[0-5]?[0-9])|[*])(?:(?:[-](?:(?:[0-5]?[0-9])|[*]))|(?:[/][0-9]+))?(?:[,](?:(?:[0-5]?[0-9])|[*])(?:(?:[-](?:(?:[0-5]?[0-9])|[*]))|(?:[/][0-9]+))?)*)[ ]+(?:(?:(?:[0-2]?[0-9])|[*])(?:(?:[-](?:(?:[0-2]?[0-9])|[*]))|(?:[/][0-9]+))?(?:[,](?:(?:[0-2]?[0-9])|[*])(?:(?:[-](?:(?:[0-2]?[0-9])|[*]))|(?:[/][0-9]+))?)*)[ ]+(?:(?:[?][ ]+(?:(?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*])(?:(?:[-](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*]))|(?:[/][0-9]+))?(?:[,](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*])(?:(?:[-](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*]))|(?:[/][0-9]+))?)*)[ ]+(?:(?:(?:[1-7]|(?:SUN|MON|TUE|WED|THU|FRI|SAT))[#][0-5])|(?:(?:(?:(?:[1-7]|(?:SUN|MON|TUE|WED|THU|FRI|SAT))L?)|[L*])(?:(?:[-](?:(?:(?:[1-7]|(?:SUN|MON|TUE|WED|THU|FRI|SAT))L?)|[L*]))|(?:[/][0-9]+))?(?:[,](?:(?:(?:[1-7]|(?:SUN|MON|TUE|WED|THU|FRI|SAT))L?)|[L*])(?:(?:[-](?:(?:(?:[1-7]|(?:SUN|MON|TUE|WED|THU|FRI|SAT))L?)|[L*]))|(?:[/][0-9]+))?)*)))|(?:(?:(?:(?:(?:[1-3]?[0-9])W?)|LW|[L*])(?:(?:[-](?:(?:(?:[1-3]?[0-9])W?)|LW|[L*]))|(?:[/][0-9]+))?(?:[,](?:(?:(?:[1-3]?[0-9])W?)|LW|[L*])(?:(?:[-](?:(?:(?:[1-3]?[0-9])W?)|LW|[L*]))|(?:[/][0-9]+))?)*)[ ]+(?:(?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*])(?:(?:[-](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*]))|(?:[/][0-9]+))?(?:[,](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*])(?:(?:[-](?:(?:[1]?[0-9])|(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)|[*]))|(?:[/][0-9]+))?)*)[ ]+[?]))[ ]+(?:(?:(?:[12][0-9]{3})|[*])(?:(?:[-](?:(?:[12][0-9]{3})|[*]))|(?:[/][0-9]+))?(?:[,](?:(?:[12][0-9]{3})|[*])(?:(?:[-](?:(?:[12][0-9]{3})|[*]))|(?:[/][0-9]+))?)*)[)])$"
+    Default: 'cron(0 0 1 * ? *)'
+    Description: 'Schedule pattern to invoke Lambda function. Default is monthly with `cron(0 0 1 * ? *)`'
+  ProjectTagParameter:
+    Type: String
+    Default: s3-cloudflare-policy-writer
+    Description: Enter value of Project tag for every resource directly created by this template. Default is `s3-cloudflare-policy-writer`
+
+Conditions:
+  ShouldLogVerbose:
+    !Equals [true, !Ref LogVerboseLambdaParameter]
+  ShouldCreateScheduleCondition:
+    !Equals [true, !Ref InvokeFunctionOnScheduleParameter]
+
+Resources:
+  LambdaInvocationRule:
+    Type: AWS::Events::Rule
+    Condition: ShouldCreateScheduleCondition
+    Properties:
+      ScheduleExpression: !Ref InvocationScheduleParameter
+      Targets:
+      - Id: LambdaPolicyMangagerScheduler
+        Arn: !GetAtt LambdaPolicyManagerFunction.Arn
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AllowCloudwatchLogging
+                Effect: Allow
+                Action:
+                - 'logs:CreateLogGroup'
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+                Resource: '*'
+              - Sid: AllowS3BucketPolicyMgmt
+                Effect: Allow
+                Action:
+                - 's3:GetBucketLocation'
+                - 's3:GetBucketPolicy'
+                - 's3:GetBucketPolicyStatus'
+                - 's3:PutBucketPolicy'
+                - 's3:DeleteBucketPolicy'
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTagParameter
+  LambdaPolicyManagerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaLoggingGroup
+    Properties:
+      Role: !GetAtt LambdaExecutionRole.Arn
+      FunctionName: !Ref FunctionNameParameter
+      Environment:
+        Variables:
+          LOG_VERBOSE: !If [ShouldLogVerbose, '1', '']
+          TARGET_BUCKETS: !Join [',', !Ref BucketNamesParameter]
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Timeout: 10
+      Code:
+        ZipFile: |
+          const assert = require("node:assert/strict"), {S3Client, GetBucketLocationCommand, GetBucketPolicyCommand, PutBucketPolicyCommand} = require("@aws-sdk/client-s3"), docSkeleton = '{"Version":"2012-10-17","Statement":[]}', Sid = "S3CloudflarePolicyWriterManagedStatement", baseStatement = {
+              Sid,
+              Effect: "Allow",
+              Action: "s3:GetObject",
+              Principal: "*",
+              Resource: "arn:aws:s3:::__BUCKET_NAME__/*",
+              Condition: {
+                  IpAddress: {
+                      "aws:SourceIp": []
+                  }
+              }
+          };
+          
+          exports.handler = async (event, context) => {
+              const {LOG_VERBOSE = !1, AWS_REGION, TARGET_BUCKETS} = process.env, verbose = (...messages) => {
+                  LOG_VERBOSE && console.log(...messages);
+              }, ipsV4 = await (await fetch("https://www.cloudflare.com/ips-v4")).text(), ipsV6 = await (await fetch("https://www.cloudflare.com/ips-v6")).text(), cfRanges = `${ipsV4}\n${ipsV6}`.split("\n").filter((x => x));
+              verbose(`Got ${cfRanges.length} IP ranges from Cloudflare:`, cfRanges), baseStatement.Condition.IpAddress["aws:SourceIp"] = cfRanges;
+              const awsAccountId = context.invokedFunctionArn.split(":")[4];
+              if (verbose(`Got current operating account id: ${awsAccountId}`), !TARGET_BUCKETS) throw new Error(`Missing target bucket list: ${TARGET_BUCKETS}`);
+              const targetBuckets = TARGET_BUCKETS.split(",").map((bucketName => ({
+                  bucketName
+              })));
+              verbose(`Got ${targetBuckets.length} target buckets:`, targetBuckets);
+              const client = {
+                  [AWS_REGION]: new S3Client({
+                      region: AWS_REGION
+                  })
+              };
+              for (let currentBucket in targetBuckets) {
+                  const targetBucket = targetBuckets[currentBucket];
+                  try {
+                      const getBucketLocationCommand = new GetBucketLocationCommand({
+                          Bucket: targetBucket.bucketName,
+                          ExpectedBucketOwner: awsAccountId
+                      }), {LocationConstraint: bucketRegion = "us-east-1"} = await client[AWS_REGION].send(getBucketLocationCommand);
+                      targetBucket.region = bucketRegion, bucketRegion != AWS_REGION && (verbose(`Found bucket ${targetBucket.bucketName} in different region (vs current of ${AWS_REGION}): ${bucketRegion}`), 
+                      client[bucketRegion] = new S3Client({
+                          region: bucketRegion
+                      }));
+                  } catch (err) {
+                      targetBucket.getException = err;
+                      continue;
+                  }
+                  try {
+                      const getBucketPolicyCommand = new GetBucketPolicyCommand({
+                          Bucket: targetBucket.bucketName,
+                          ExpectedBucketOwner: awsAccountId
+                      }), {Policy: targetPolicy} = await client[targetBucket.region].send(getBucketPolicyCommand);
+                      targetBucket.currentPolicy = targetPolicy, verbose(`Got ${targetPolicy.length} bytes of policy for bucket ${targetBucket.bucketName}`);
+                  } catch (err) {
+                      if ("The bucket policy does not exist" !== err.message) {
+                          targetBucket.getException = err;
+                          continue;
+                      }
+                  }
+                  if (!targetBucket.currentPolicy) {
+                      targetBucket.differs = !0, verbose(`Empty/missing policy for bucket ${targetBucket.bucketName}`);
+                      continue;
+                  }
+                  let testPolicy;
+                  try {
+                      testPolicy = JSON.parse(targetBucket.currentPolicy), targetBucket.currentPolicy = testPolicy;
+                  } catch (err) {
+                      targetBucket.parseException = err;
+                      continue;
+                  }
+                  if (!testPolicy.hasOwnProperty("Statement") || !Array.isArray(testPolicy.Statement)) {
+                      targetBucket.differs = !0, verbose(`Policy missing statements list for bucket ${targetBucket.bucketName}:`, testPolicy?.Statement);
+                      continue;
+                  }
+                  const testStatements = testPolicy.Statement.filter((s => s.Sid === Sid));
+                  switch (testStatements.length) {
+                    case 1:
+                      try {
+                          const expected = JSON.parse(JSON.stringify(baseStatement));
+                          expected.Resource = expected.Resource.replace("__BUCKET_NAME__", targetBucket.bucketName), 
+                          assert.deepStrictEqual(testStatements[0], expected), targetBucket.differs = !1;
+                      } catch (err) {
+                          targetBucket.differs = !0;
+                      }
+                      break;
+          
+                    case 0:
+                      targetBucket.differs = !0;
+                      break;
+          
+                    default:
+                      targetBucket.differs = !0, verbose(`Policy has ${testStatements.length} duplicate statements with Sid "${Sid}"`);
+                  }
+                  verbose(`Policy ${targetBucket.differs ? "differs" : "up to date"} for bucket ${targetBucket.bucketName}`);
+              }
+              let hasExceptions = targetBuckets.reduce(((res, curr) => res || !(!curr.getException && !curr.parseException)), !1);
+              if (hasExceptions) return console.log("Following buckets failed to get or parse current bucket policies:"), 
+              void console.table(targetBuckets.filter((b => b.getException || b.parseException)).map((b => ({
+                  bucket: b.bucketName,
+                  get: b.getException?.toString(),
+                  parse: b.parseException?.toString()
+              }))));
+              if (targetBuckets.filter((b => b.differs)).length < 1) return console.log("All bucket policies are up to date!"), 
+              !0;
+              let updateSuccesses = 0;
+              for (let currentBucket in targetBuckets) {
+                  const targetBucket = targetBuckets[currentBucket];
+                  let targetPolicy = targetBucket.currentPolicy;
+                  if (!targetBucket.differs) continue;
+                  targetPolicy || (targetPolicy = JSON.parse(docSkeleton)), targetPolicy.Statement && Array.isArray(targetPolicy.Statement) ? targetPolicy.Statement = targetPolicy.Statement.filter((s => s.Sid !== Sid)) : targetPolicy.Statement = [];
+                  const newStatement = JSON.parse(JSON.stringify(baseStatement));
+                  newStatement.Resource = newStatement.Resource.replace("__BUCKET_NAME__", targetBucket.bucketName), 
+                  targetPolicy.Statement.push(newStatement);
+                  try {
+                      const putBucketPolicyCommand = new PutBucketPolicyCommand({
+                          Bucket: targetBucket.bucketName,
+                          ExpectedBucketOwner: awsAccountId,
+                          Policy: JSON.stringify(targetPolicy)
+                      });
+                      await client[targetBucket.region].send(putBucketPolicyCommand), updateSuccesses++, 
+                      verbose(`Policy updated successfully for bucket ${targetBucket.bucketName}`);
+                  } catch (err) {
+                      targetBucket.putException = err;
+                  }
+              }
+              return console.log(`Bucket policies updated for ${updateSuccesses} buckets`), hasExceptions = targetBuckets.reduce(((res, curr) => res || !!curr.putException), !1), 
+              !hasExceptions || (console.log("Following buckets failed to put updated bucket policy:"), 
+              void console.table(targetBuckets.filter((b => b.putException)).map((b => ({
+                  bucket: b.bucketName,
+                  put: b.putException?.toString()
+              })))));
+          };
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTagParameter
+  LambdaLoggingGroup:
+    Type: AWS::Logs::LogGroup
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${FunctionNameParameter}'
+      RetentionInDays: !Ref LogRetentionParameter
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTagParameter
